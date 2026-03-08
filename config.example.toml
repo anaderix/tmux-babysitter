@@ -1,0 +1,35 @@
+monitoring_interval_ms = 1000  # Check every second
+
+[tmux]
+session = "my-session"
+window = "my-window"  # Optional, defaults to first window
+pane = "0"             # Optional, defaults to first pane
+
+[llm]
+base_url = "http://localhost:11434/v1"  # For Ollama, or use OpenAI API
+model = "llama3.2"                      # Or "gpt-4o-mini", etc.
+api_key = "ollama"                      # Required by some APIs
+
+[guard_rails]
+default_response = "no"  # Default to safe option
+
+[[guard_rails.rules]]
+name = "continue_confirmation"
+description = "Asks if user wants to continue with a process"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "file_overwrite"
+description = "Asks permission to overwrite files"
+response = "no"
+
+[[guard_rails.rules]]
+name = "package_installation"
+description = "Asks to install dependencies"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "destructive_operation"
+description = "Asks confirmation for destructive operations (delete, remove, etc.)"
+response = "no"
+

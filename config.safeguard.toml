@@ -1,0 +1,348 @@
+monitoring_interval_ms = 500  # Check every 500ms for faster response
+
+[tmux]
+session = "my-session"
+window = "my-window"  # Optional, defaults to first window
+pane = "0"             # Optional, defaults to first pane
+
+[llm]
+base_url = "http://localhost:11434/v1"  # For Ollama
+model = "llama3.2"                      # Or use a fast small model
+api_key = "ollama"
+
+[guard_rails]
+# Default to "no" for safety - if uncertain, refuse
+default_response = "no"
+
+# ============================================================================
+# DANGEROUS DESTRUCTIVE OPERATIONS - ALWAYS SAY NO
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "file_delete"
+description = "Asks confirmation to delete, remove, or erase files or directories"
+response = "no"
+
+[[guard_rails.rules]]
+name = "recursive_delete"
+description = "Asks to recursively delete directories (rm -rf, delete -r, etc.)"
+response = "no"
+
+[[guard_rails.rules]]
+name = "disk_format"
+description = "Asks to format, wipe, or erase disk drives or partitions"
+response = "no"
+
+[[guard_rails.rules]]
+name = "disk_erase"
+description = "Asks to securely erase or zero out disks"
+response = "no"
+
+[[guard_rails.rules]]
+name = "partition_delete"
+description = "Asks to delete disk partitions"
+response = "no"
+
+# ============================================================================
+# DATA DESTRUCTION
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "database_drop"
+description = "Asks to drop, delete, or truncate databases or tables"
+response = "no"
+
+[[guard_rails.rules]]
+name = "database_wipe"
+description = "Asks to clear, empty, or truncate tables with data"
+response = "no"
+
+[[guard_rails.rules]]
+name = "backup_delete"
+description = "Asks to delete backups or archive files"
+response = "no"
+
+[[guard_rails.rules]]
+name = "log_delete"
+description = "Asks to delete or rotate log files that may contain important data"
+response = "no"
+
+[[guard_rails.rules]]
+name = "cache_delete"
+description = "Asks to delete caches that might contain important work"
+response = "no"
+
+# ============================================================================
+# VERSION CONTROL DESTRUCTIVE ACTIONS
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "git_force_delete_branch"
+description = "Asks to force delete a git branch that might have unpushed work"
+response = "no"
+
+[[guard_rails.rules]]
+name = "git_reset_hard"
+description = "Asks to perform git reset --hard, which discards uncommitted changes"
+response = "no"
+
+[[guard_rails.rules]]
+name = "git_force_push"
+description = "Asks to force push to remote, which overwrites remote history"
+response = "no"
+
+[[guard_rails.rules]]
+name = "git_amend_public"
+description = "Asks to amend already-pushed commits, which rewrites history"
+response = "no"
+
+[[guard_rails.rules]]
+name = "git_clean_force"
+description = "Asks to run git clean with force, removing untracked files"
+response = "no"
+
+# ============================================================================
+# PACKAGE MANAGEMENT - DANGEROUS OPERATIONS
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "package_remove"
+description = "Asks to remove, uninstall, or purge packages"
+response = "no"
+
+[[guard_rails.rules]]
+name = "package_uninstall"
+description = "Asks to uninstall dependencies or packages"
+response = "no"
+
+[[guard_rails.rules]]
+name = "dependency_delete"
+description = "Asks to delete node_modules, vendor, or similar dependency directories"
+response = "no"
+
+[[guard_rails.rules]]
+name = "system_upgrade"
+description = "Asks to upgrade entire system (dist-upgrade, full-upgrade, etc.)"
+response = "no"
+
+# ============================================================================
+# CREDENTIAL AND SECURITY DESTRUCTION
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "ssh_key_delete"
+description = "Asks to delete SSH keys"
+response = "no"
+
+[[guard_rails.rules]]
+name = "credential_delete"
+description = "Asks to delete credentials, tokens, or API keys"
+response = "no"
+
+[[guard_rails.rules]]
+name = "certificate_delete"
+description = "Asks to delete SSL/TLS certificates"
+response = "no"
+
+[[guard_rails.rules]]
+name = "keychain_delete"
+description = "Asks to delete or reset keychain/password store"
+response = "no"
+
+# ============================================================================
+# PROCESS AND SYSTEM DESTRUCTION
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "process_kill_force"
+description = "Asks to force kill processes (kill -9, SIGKILL)"
+response = "no"
+
+[[guard_rails.rules]]
+name = "system_shutdown"
+description = "Asks to shutdown, reboot, or halt the system"
+response = "no"
+
+[[guard_rails.rules]]
+name = "service_stop"
+description = "Asks to stop critical system services"
+response = "no"
+
+# ============================================================================
+# CONFIGURATION DESTRUCTION
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "config_delete"
+description = "Asks to delete configuration files"
+response = "no"
+
+[[guard_rails.rules]]
+name = "config_overwrite"
+description = "Asks to overwrite configuration files with new content"
+response = "no"
+
+[[guard_rails.rules]]
+name = "settings_reset"
+description = "Asks to reset or clear application settings"
+response = "no"
+
+# ============================================================================
+# NETWORK AND EXFILTRATION
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "data_upload"
+description = "Asks to upload sensitive data to external servers"
+response = "no"
+
+[[guard_rails.rules]]
+name = "file_send"
+description = "Asks to send files to external recipients or servers"
+response = "no"
+
+[[guard_rails.rules]]
+name = "execute_remote"
+description = "Asks to download and execute code from the internet"
+response = "no"
+
+# ============================================================================
+# DEVELOPMENT ENVIRONMENT DESTRUCTION
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "docker_delete_container"
+description = "Asks to delete Docker containers with data"
+response = "no"
+
+[[guard_rails.rules]]
+name = "docker_delete_volume"
+description = "Asks to delete Docker volumes (which contain data)"
+response = "no"
+
+[[guard_rails.rules]]
+name = "vm_delete"
+description = "Asks to delete virtual machines"
+response = "no"
+
+[[guard_rails.rules]]
+name = "sandbox_reset"
+description = "Asks to reset or wipe development sandboxes"
+response = "no"
+
+# ============================================================================
+# CLOUD DESTRUCTION
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "cloud_delete_resource"
+description = "Asks to delete cloud resources (EC2, S3 buckets, etc.)"
+response = "no"
+
+[[guard_rails.rules]]
+name = "cloud_terminate"
+description = "Asks to terminate cloud instances or services"
+response = "no"
+
+[[guard_rails.rules]]
+name = "cloud_wipe_data"
+description = "Asks to wipe or delete data from cloud storage"
+response = "no"
+
+# ============================================================================
+# MISC DESTRUCTIVE OPERATIONS
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "overwrite_file"
+description = "Asks to overwrite an existing file with new content"
+response = "no"
+
+[[guard_rails.rules]]
+name = "truncate_file"
+description = "Asks to truncate or zero out files"
+response = "no"
+
+[[guard_rails.rules]]
+name = "clear_command_history"
+description = "Asks to clear command history (which might contain sensitive info)"
+response = "no"
+
+# ============================================================================
+# SAFE OPERATIONS - YES (for development workflows)
+# ============================================================================
+
+[[guard_rails.rules]]
+name = "continue_confirmation"
+description = "Asks to continue with a non-destructive process"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "package_install"
+description = "Asks to install new packages or dependencies"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "dependency_install"
+description = "Asks to install npm, pip, cargo, or other dependencies"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "build_confirmation"
+description = "Asks confirmation to build or compile code"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "test_confirmation"
+description = "Asks to run tests"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "git_commit"
+description = "Asks to create a git commit"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "git_push"
+description = "Asks to push to remote repository (non-force)"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "git_pull"
+description = "Asks to pull from remote repository"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "git_checkout"
+description = "Asks to checkout a branch"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "git_merge"
+description = "Asks to merge changes"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "docker_pull"
+description = "Asks to pull Docker images"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "docker_run"
+description = "Asks to run a Docker container"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "docker_build"
+description = "Asks to build a Docker image"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "database_migration"
+description = "Asks to run database migrations (non-destructive)"
+response = "yes"
+
+[[guard_rails.rules]]
+name = "deployment_confirmation"
+description = "Asks to deploy code to non-production environments"
+response = "yes"
