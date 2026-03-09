@@ -41,3 +41,50 @@ tmux-babysitter: Rust application that monitors tmux sessions and automatically 
 - Default to "no" when uncertain
 - Fast monitoring (500ms) for quick response
 - tmux-babysitter now has QWEN.md file documenting project requirements and design choices (Rust rationale, LLM vs regex, TOML config, architecture, guard rail strategy, safety features)
+
+### Numbered Menu Confirmation Logic (March 2026)
+
+**Problem:** AI assistants like Claude use numbered menus instead of text prompts:
+```
+ ❯ 1. Yes
+   2. No
+```
+Or 3-option menus:
+```
+ ❯ 1. Yes
+   2. Yes, always
+   3. No
+```
+
+**Solution:** Position-aware response system
+
+**LLM Response Format:**
+- Text prompts: `file_delete` → uses config `response` value
+- Numbered menus: `file_delete:3` → sends position `3` directly
+
+**Response Flow:**
+1. LLM analyzes terminal output for numbered menu patterns
+2. If menu detected, LLM returns `rule_name:position` (e.g., `file_delete:3`)
+3. `main.rs` parses the colon format:
+   - If position present: use it directly
+   - If no position: fallback to backward compatibility (`yes`→`1`, `no`→`2`)
+4. Send single keypress (number) to tmux - no Enter needed
+
+**Backward Compatibility:**
+- Existing configs with `response = "yes"` still work (converts to `1`)
+- Existing configs with `response = "no"` still work (converts to `2`)
+- LLM intelligently detects when "No" is at position 3 in 3-option menus
+
+**Key Files Modified:**
+- `src/llm.rs`: System prompt with position detection instructions and examples
+- `src/main.rs`: Parse `rule:position` format, yes/no fallback mapping
+- `src/tmux.rs`: `send_keys_no_enter` - sends number without Enter
+- `config.safeguard.toml`: Added `menu_select_*` rules for explicit handling
+
+**Example Scenarios:**
+| Terminal Output | LLM Returns | Sends |
+|-----------------|-------------|-------|
+| `Delete? (yes/no)` | `file_delete` | `2` |
+| `1. Yes  2. No` | `file_delete:2` | `2` |
+| `1. Yes  2. Always  3. No` | `file_delete:3` | `3` |
+| `1. Continue  2. Cancel` | `continue_confirmation:1` | `1` |

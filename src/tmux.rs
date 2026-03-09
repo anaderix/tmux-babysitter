@@ -42,12 +42,12 @@ impl TmuxClient {
         Ok(content)
     }
 
-    pub async fn send_keys(&self, keys: &str) -> Result<()> {
+    pub async fn send_keys_no_enter(&self, keys: &str) -> Result<()> {
         let target = self.build_target();
         info!("Sending keys to {}: '{}'", target, keys);
 
         let output = Command::new("tmux")
-            .args(["send-keys", "-t", &target, keys, "C-m"])
+            .args(["send-keys", "-t", &target, keys])
             .output()
             .await
             .context("Failed to execute tmux send-keys")?;

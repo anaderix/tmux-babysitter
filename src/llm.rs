@@ -47,13 +47,16 @@ impl LlmClient {
     }
 
     pub async fn analyze_output(&self, output: &str) -> Result<String> {
-        let system_prompt = r#"You are a monitoring assistant. Analyze the terminal output and determine if there's a question that requires a yes/no response.
+        let system_prompt = r#"You are a monitoring assistant. Analyze the terminal output and determine if there's a question that requires a response.
 
-If you detect a question, respond with just the name of the guard rule that applies from the list below.
-If no question is detected, respond with "NONE".
+IMPORTANT: If you detect a numbered menu (options like "1. Yes  2. No" or "[1] Yes [2] No"), you MUST include the position number of the correct answer.
+
+Response format:
+- For text-based yes/no questions: respond with just the rule name (e.g., "file_delete")
+- For numbered menus: respond with "rule_name:position" where position is the number to select (e.g., "file_delete:3" if "No" is option 3)
 
 Available guard rules:
-Destructive operations (always NO):
+Destructive operations (answer NO - find which position is "No"):
 - file_delete: Asks confirmation to delete, remove, or erase files or directories
 - recursive_delete: Asks to recursively delete directories
 - disk_format: Asks to format, wipe, or erase disk drives or partitions
@@ -97,7 +100,7 @@ Destructive operations (always NO):
 - truncate_file: Asks to truncate or zero out files
 - clear_command_history: Asks to clear command history
 
-Safe operations (YES):
+Safe operations (answer YES - usually position 1):
 - continue_confirmation: Asks to continue with a non-destructive process
 - package_install: Asks to install new packages or dependencies
 - dependency_install: Asks to install npm, pip, cargo, or other dependencies
@@ -114,7 +117,13 @@ Safe operations (YES):
 - database_migration: Asks to run database migrations (non-destructive)
 - deployment_confirmation: Asks to deploy code to non-production environments
 
-Respond ONLY with the rule name or "NONE"."#;
+Examples:
+- Terminal: "Delete file? (yes/no)" → Response: "file_delete"
+- Terminal: "1. Yes  2. No" + destructive op → Response: "file_delete:2"
+- Terminal: "1. Yes  2. Always  3. No" + destructive op → Response: "file_delete:3"
+- Terminal: "1. Continue  2. Cancel" + safe op → Response: "continue_confirmation:1"
+
+Respond ONLY with the rule name or "NONE", optionally followed by ":position" for numbered menus."#;
 
         let user_prompt = format!(
             "Analyze this terminal output:\n\n{}",

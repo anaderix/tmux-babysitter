@@ -346,3 +346,39 @@ response = "yes"
 name = "deployment_confirmation"
 description = "Asks to deploy code to non-production environments"
 response = "yes"
+
+# ============================================================================
+# SELECTION MENU OPERATIONS
+# ============================================================================
+# For numbered menus, use the option number (1, 2, 3, etc.)
+# The babysitter will send the number followed by Enter
+
+[[guard_rails.rules]]
+name = "menu_select_first"
+description = "A numbered menu or selection list where first option is Yes/Proceed/Continue"
+response = "1"
+
+[[guard_rails.rules]]
+name = "menu_select_second"
+description = "A numbered menu where the second option is the correct choice (e.g., No, or Yes Always)"
+response = "2"
+
+[[guard_rails.rules]]
+name = "menu_select_third"
+description = "A numbered menu where the third option is the correct choice"
+response = "3"
+
+[[guard_rails.rules]]
+name = "menu_yes"
+description = "A numbered menu where Yes is the correct option (usually position 1)"
+response = "1"
+
+[[guard_rails.rules]]
+name = "menu_no"
+description = "A numbered menu where No is the correct option (usually position 2)"
+response = "2"
+
+[[guard_rails.rules]]
+name = "menu_always"
+description = "A numbered menu with Yes/Yes Always/No - select Yes Always (usually position 2)"
+response = "2"

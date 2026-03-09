@@ -33,3 +33,13 @@ name = "destructive_operation"
 description = "Asks confirmation for destructive operations (delete, remove, etc.)"
 response = "no"
 
+[[guard_rails.rules]]
+name = "menu_select_first"
+description = "A numbered menu where first option is Yes/Proceed/Continue"
+response = "1"
+
+[[guard_rails.rules]]
+name = "menu_select_second"
+description = "A numbered menu where second option is correct (e.g., No, or Yes Always)"
+response = "2"
+
