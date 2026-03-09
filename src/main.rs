@@ -35,8 +35,29 @@ async fn main() -> Result<()> {
     info!("Config loaded for tmux session: {}", config.tmux.session);
 
     let tmux_client = TmuxClient::new(config.tmux.clone());
-    let llm_client = LlmClient::new(config.llm.clone())?;
+    let llm_client = LlmClient::new(
+        config.llm.clone(),
+        &config.guard_rails.rules,
+        &config.guard_rails.default_response,
+    )?;
     let guard_engine = GuardRailsEngine::new(config.guard_rails.clone());
+
+    if config.guard_rails.rules.is_empty() {
+        warn!("No guard rules configured — all questions will use default response '{}'", config.guard_rails.default_response);
+    }
+
+    // Validate tmux session and LLM endpoint before entering the loop
+    tmux_client
+        .check_session()
+        .await
+        .context("Startup check failed: tmux session not found")?;
+    info!("Tmux session '{}' is active", config.tmux.session);
+
+    llm_client
+        .health_check()
+        .await
+        .context("Startup check failed: cannot reach LLM endpoint")?;
+    info!("LLM endpoint at '{}' is reachable", config.llm.base_url);
 
     if args.dry_run {
         warn!("DRY RUN MODE: No actual responses will be sent");

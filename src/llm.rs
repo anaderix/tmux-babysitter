@@ -1,7 +1,8 @@
-use crate::config::LlmConfig;
+use crate::config::{GuardRule, LlmConfig};
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tracing::debug;
 
 #[derive(Debug, Serialize)]
@@ -35,106 +36,46 @@ struct Message {
 pub struct LlmClient {
     client: Client,
     config: LlmConfig,
+    system_prompt: String,
 }
 
 impl LlmClient {
-    pub fn new(config: LlmConfig) -> Result<Self> {
+    pub fn new(config: LlmConfig, rules: &[GuardRule], default_response: &str) -> Result<Self> {
         let client = Client::builder()
+            .timeout(Duration::from_secs(10))
             .build()
             .context("Failed to create HTTP client")?;
 
-        Ok(Self { client, config })
+        let system_prompt = build_system_prompt(rules, default_response);
+
+        Ok(Self {
+            client,
+            config,
+            system_prompt,
+        })
+    }
+
+    pub async fn health_check(&self) -> Result<()> {
+        let url = format!("{}/models", self.config.base_url);
+        let mut request_builder = self.client.get(&url);
+
+        if let Some(api_key) = &self.config.api_key {
+            request_builder =
+                request_builder.header("Authorization", format!("Bearer {}", api_key));
+        }
+
+        request_builder
+            .send()
+            .await
+            .context(format!("LLM endpoint unreachable at {}", self.config.base_url))?;
+
+        Ok(())
     }
 
     pub async fn analyze_output(&self, output: &str) -> Result<String> {
-        let system_prompt = r#"You are a monitoring assistant. Analyze the terminal output and determine if there's a question that requires a response.
-
-IMPORTANT: If you detect a numbered menu (options like "1. Yes  2. No" or "[1] Yes [2] No"), you MUST include the position number of the correct answer.
-
-Response format:
-- For text-based yes/no questions: respond with just the rule name (e.g., "file_delete")
-- For numbered menus: respond with "rule_name:position" where position is the number to select (e.g., "file_delete:3" if "No" is option 3)
-
-CRITICAL: Generic numbered menus (like "Do you want to proceed?", "Confirm action?", etc.) where the context is unclear:
-- If the menu shows "1. Yes  2. No" and there's NO indication of destructive action, respond: "generic_proceed:1" (safe default)
-- Only use destructive rules (file_delete, etc.) when the terminal output CLEARLY indicates a destructive action
-
-Available guard rules:
-Destructive operations (answer NO - find which position is "No"):
-- file_delete: Asks confirmation to delete, remove, or erase files or directories
-- recursive_delete: Asks to recursively delete directories
-- disk_format: Asks to format, wipe, or erase disk drives or partitions
-- disk_erase: Asks to securely erase or zero out disks
-- partition_delete: Asks to delete disk partitions
-- database_drop: Asks to drop, delete, or truncate databases or tables
-- database_wipe: Asks to clear, empty, or truncate tables with data
-- backup_delete: Asks to delete backups or archive files
-- log_delete: Asks to delete or rotate log files
-- cache_delete: Asks to delete caches that might contain important work
-- git_force_delete_branch: Asks to force delete a git branch
-- git_reset_hard: Asks to perform git reset --hard
-- git_force_push: Asks to force push to remote
-- git_amend_public: Asks to amend already-pushed commits
-- git_clean_force: Asks to run git clean with force
-- package_remove: Asks to remove, uninstall, or purge packages
-- package_uninstall: Asks to uninstall dependencies or packages
-- dependency_delete: Asks to delete node_modules, vendor, or similar directories
-- system_upgrade: Asks to upgrade entire system
-- ssh_key_delete: Asks to delete SSH keys
-- credential_delete: Asks to delete credentials, tokens, or API keys
-- certificate_delete: Asks to delete SSL/TLS certificates
-- keychain_delete: Asks to delete or reset keychain/password store
-- process_kill_force: Asks to force kill processes (kill -9, SIGKILL)
-- system_shutdown: Asks to shutdown, reboot, or halt the system
-- service_stop: Asks to stop critical system services
-- config_delete: Asks to delete configuration files
-- config_overwrite: Asks to overwrite configuration files with new content
-- settings_reset: Asks to reset or clear application settings
-- data_upload: Asks to upload sensitive data to external servers
-- file_send: Asks to send files to external recipients or servers
-- execute_remote: Asks to download and execute code from the internet
-- docker_delete_container: Asks to delete Docker containers with data
-- docker_delete_volume: Asks to delete Docker volumes (which contain data)
-- vm_delete: Asks to delete virtual machines
-- sandbox_reset: Asks to reset or wipe development sandboxes
-- cloud_delete_resource: Asks to delete cloud resources (EC2, S3 buckets, etc.)
-- cloud_terminate: Asks to terminate cloud instances or services
-- cloud_wipe_data: Asks to wipe or delete data from cloud storage
-- overwrite_file: Asks to overwrite an existing file with new content
-- truncate_file: Asks to truncate or zero out files
-- clear_command_history: Asks to clear command history
-
-Safe operations (answer YES - usually position 1):
-- continue_confirmation: Asks to continue with a non-destructive process
-- package_install: Asks to install new packages or dependencies
-- dependency_install: Asks to install npm, pip, cargo, or other dependencies
-- build_confirmation: Asks confirmation to build or compile code
-- test_confirmation: Asks to run tests
-- git_commit: Asks to create a git commit
-- git_push: Asks to push to remote repository (non-force)
-- git_pull: Asks to pull from remote repository
-- git_checkout: Asks to checkout a branch
-- git_merge: Asks to merge changes
-- docker_pull: Asks to pull Docker images
-- docker_run: Asks to run a Docker container
-- docker_build: Asks to build a Docker image
-- database_migration: Asks to run database migrations (non-destructive)
-- deployment_confirmation: Asks to deploy code to non-production environments
-- generic_proceed: Generic numbered menu asking to proceed (e.g., "Do you want to proceed?") where context is unclear
-
-Examples:
-- Terminal: "Delete file? (yes/no)" → Response: "file_delete"
-- Terminal: "1. Yes  2. No" + destructive op → Response: "file_delete:2"
-- Terminal: "1. Yes  2. Always  3. No" + destructive op → Response: "file_delete:3"
-- Terminal: "1. Yes  2. Always  3. No" + safe op (no destruction) → Response: "generic_proceed:1"
-- Terminal: "1. Continue  2. Cancel" + safe op → Response: "continue_confirmation:1"
-
-Respond ONLY with the rule name or "NONE", optionally followed by ":position" for numbered menus."#;
-
-        let user_prompt = format!(
-            "Analyze this terminal output:\n\n{}",
-            output.lines().rev().take(20).collect::<Vec<_>>().join("\n")
-        );
+        let lines: Vec<&str> = output.lines().collect();
+        let tail = &lines[lines.len().saturating_sub(20)..];
+        let user_prompt = format!("Analyze this terminal output:\n\n{}", tail.join("\n"));
 
         debug!("Sending request to LLM");
 
@@ -143,7 +84,7 @@ Respond ONLY with the rule name or "NONE", optionally followed by ":position" fo
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: system_prompt.to_string(),
+                    content: self.system_prompt.clone(),
                 },
                 ChatMessage {
                     role: "user".to_string(),
@@ -188,4 +129,80 @@ Respond ONLY with the rule name or "NONE", optionally followed by ":position" fo
         debug!("LLM analysis result: {}", content);
         Ok(content)
     }
+}
+
+fn build_system_prompt(rules: &[GuardRule], default_response: &str) -> String {
+    let mut destructive_rules = Vec::new();
+    let mut safe_rules = Vec::new();
+    let mut menu_rules = Vec::new();
+
+    for rule in rules {
+        match rule.response.to_lowercase().as_str() {
+            "no" => destructive_rules.push(rule),
+            "yes" => safe_rules.push(rule),
+            _ => menu_rules.push(rule),
+        }
+    }
+
+    let mut prompt = String::from(
+        r#"You are a monitoring assistant. Analyze the terminal output and determine if there's a question that requires a response.
+
+IMPORTANT: If you detect a numbered menu (options like "1. Yes  2. No" or "[1] Yes [2] No"), you MUST include the position number of the correct answer.
+
+Response format:
+- For text-based yes/no questions: respond with just the rule name (e.g., "file_delete")
+- For numbered menus: respond with "rule_name:position" where position is the number to select (e.g., "file_delete:3" if "No" is option 3)
+
+CRITICAL: Generic numbered menus (like "Do you want to proceed?", "Confirm action?", etc.) where the context is unclear:
+- If the menu shows "1. Yes  2. No" and there's NO indication of destructive action, respond: "generic_proceed:1" (safe default)
+- Only use destructive rules (file_delete, etc.) when the terminal output CLEARLY indicates a destructive action
+
+Available guard rules:
+"#,
+    );
+
+    if !destructive_rules.is_empty() {
+        prompt.push_str("Destructive operations (answer NO - find which position is \"No\"):\n");
+        for rule in &destructive_rules {
+            prompt.push_str(&format!("- {}: {}\n", rule.name, rule.description));
+        }
+        prompt.push('\n');
+    }
+
+    if !safe_rules.is_empty() {
+        prompt.push_str("Safe operations (answer YES - usually position 1):\n");
+        for rule in &safe_rules {
+            prompt.push_str(&format!("- {}: {}\n", rule.name, rule.description));
+        }
+        prompt.push('\n');
+    }
+
+    if !menu_rules.is_empty() {
+        prompt.push_str("Menu selection rules (use the configured position):\n");
+        for rule in &menu_rules {
+            prompt.push_str(&format!(
+                "- {}: {} (select position {})\n",
+                rule.name, rule.description, rule.response
+            ));
+        }
+        prompt.push('\n');
+    }
+
+    prompt.push_str(&format!(
+        "Default response when no rule matches: \"{}\"\n\n",
+        default_response
+    ));
+
+    prompt.push_str(
+        r#"Examples:
+- Terminal: "Delete file? (yes/no)" → Response: "file_delete"
+- Terminal: "1. Yes  2. No" + destructive op → Response: "file_delete:2"
+- Terminal: "1. Yes  2. Always  3. No" + destructive op → Response: "file_delete:3"
+- Terminal: "1. Yes  2. Always  3. No" + safe op (no destruction) → Response: "generic_proceed:1"
+- Terminal: "1. Continue  2. Cancel" + safe op → Response: "continue_confirmation:1"
+
+Respond ONLY with the rule name or "NONE", optionally followed by ":position" for numbered menus."#,
+    );
+
+    prompt
 }

@@ -36,6 +36,21 @@ impl TmuxClient {
         target
     }
 
+    pub async fn check_session(&self) -> Result<()> {
+        let target = self.build_target();
+        let output = Command::new("tmux")
+            .args(["has-session", "-t", &self.config.session])
+            .output()
+            .await
+            .context("Failed to execute tmux has-session. Is tmux installed?")?;
+
+        if !output.status.success() {
+            bail!(SessionNotFoundError { target });
+        }
+
+        Ok(())
+    }
+
     pub async fn capture_pane(&self) -> Result<String> {
         let target = self.build_target();
         let output = Command::new("tmux")
