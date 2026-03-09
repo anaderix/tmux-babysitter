@@ -1,5 +1,4 @@
 ## Qwen Added Memories
-
 ### Project Overview
 tmux-babysitter: Rust application that monitors tmux sessions and automatically responds to yes/no questions using LLM (Ollama/OpenAI). Features configurable TOML-based guard rails for safety, protects against destructive operations with 60+ safety rules, includes dry-run mode, verbose logging, Makefile for build automation, cross-platform (Linux/macOS).
 
@@ -41,3 +40,4 @@ tmux-babysitter: Rust application that monitors tmux sessions and automatically 
 - Verbose logging of all decisions
 - Default to "no" when uncertain
 - Fast monitoring (500ms) for quick response
+- tmux-babysitter now has QWEN.md file documenting project requirements and design choices (Rust rationale, LLM vs regex, TOML config, architecture, guard rail strategy, safety features)
