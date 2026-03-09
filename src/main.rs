@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod debuglog;
 mod guard;
 mod llm;
 mod prefilter;
@@ -9,11 +10,13 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use cli::Args;
 use config::Config;
+use debuglog::DebugLog;
 use guard::GuardRailsEngine;
 use llm::LlmClient;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use tmux::{SessionNotFoundError, TmuxClient};
 use tokio::time;
@@ -59,6 +62,16 @@ async fn main() -> Result<()> {
         .context("Startup check failed: cannot reach LLM endpoint")?;
     info!("LLM endpoint at '{}' is reachable", config.llm.base_url);
 
+    let debug_log: Option<Arc<DebugLog>> = if let Some(ref path) = args.debug_log {
+        let dl = DebugLog::new(path).context("Failed to open debug log file")?;
+        info!("Debug logging to: {}", path.display());
+        // Log the system prompt once at startup
+        dl.log_llm_request(llm_client.system_prompt(), "(startup — system prompt logged)");
+        Some(Arc::new(dl))
+    } else {
+        None
+    };
+
     if args.dry_run {
         warn!("DRY RUN MODE: No actual responses will be sent");
     }
@@ -74,7 +87,7 @@ async fn main() -> Result<()> {
     loop {
         interval.tick().await;
 
-        match monitor_once(&tmux_client, &llm_client, &guard_engine, args.dry_run, &mut state).await {
+        match monitor_once(&tmux_client, &llm_client, &guard_engine, args.dry_run, &mut state, debug_log.as_deref()).await {
             Ok(response_sent) => {
                 if response_sent && !args.dry_run {
                     // Enter rapid response mode to catch chained confirmations
@@ -85,6 +98,7 @@ async fn main() -> Result<()> {
                         args.dry_run,
                         &config.rapid_response,
                         &mut state,
+                        debug_log.as_deref(),
                     )
                     .await
                     {
@@ -148,6 +162,7 @@ async fn monitor_once(
     guard_engine: &GuardRailsEngine,
     dry_run: bool,
     state: &mut MonitorState,
+    debug_log: Option<&DebugLog>,
 ) -> Result<bool> {
     let output = tmux_client
         .capture_pane()
@@ -164,6 +179,10 @@ async fn monitor_once(
         return Ok(false);
     }
     state.last_capture_hash = Some(current_hash);
+
+    if let Some(dl) = debug_log {
+        dl.log_capture(&output);
+    }
 
     if !prefilter::has_question(&output) {
         debug!("Prefilter: no question detected, skipping LLM call");
@@ -190,11 +209,14 @@ async fn monitor_once(
     debug!("Prefilter: possible question detected, calling LLM");
 
     let llm_result = llm_client
-        .analyze_output(&output)
+        .analyze_output(&output, debug_log)
         .await
         .context("Failed to analyze output with LLM")?;
 
     if llm_result == "NONE" {
+        if let Some(dl) = debug_log {
+            dl.log_skip("LLM returned NONE");
+        }
         return Ok(false);
     }
 
@@ -204,6 +226,9 @@ async fn monitor_once(
             "Duplicate response suppressed: already answered '{}'",
             llm_result
         );
+        if let Some(dl) = debug_log {
+            dl.log_skip(&format!("Duplicate suppressed: already answered '{}'", llm_result));
+        }
         return Ok(false);
     }
 
@@ -233,6 +258,10 @@ async fn monitor_once(
         }
     };
 
+    if let Some(dl) = debug_log {
+        dl.log_action(rule_name, &final_response, dry_run);
+    }
+
     if dry_run {
         info!(
             "[DRY RUN] Would send response: '{}' for rule: '{}'",
@@ -259,6 +288,7 @@ async fn rapid_response_loop(
     dry_run: bool,
     rapid_config: &config::RapidResponse,
     state: &mut MonitorState,
+    debug_log: Option<&DebugLog>,
 ) -> Result<()> {
     if !rapid_config.enabled {
         return Ok(());
@@ -272,7 +302,7 @@ async fn rapid_response_loop(
     for i in 0..rapid_config.count {
         tokio::time::sleep(Duration::from_millis(rapid_config.interval_ms)).await;
 
-        match monitor_once(tmux_client, llm_client, guard_engine, dry_run, state).await {
+        match monitor_once(tmux_client, llm_client, guard_engine, dry_run, state, debug_log).await {
             Ok(response_sent) => {
                 if response_sent {
                     debug!("Rapid response {}: action taken", i + 1);

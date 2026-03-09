@@ -16,4 +16,8 @@ pub struct Args {
     /// Enable verbose logging
     #[arg(short, long)]
     pub verbose: bool,
+
+    /// Log all LLM interactions (captured pane, sent prompt, LLM response) to a file
+    #[arg(long)]
+    pub debug_log: Option<PathBuf>,
 }

@@ -1,4 +1,5 @@
 use crate::config::{GuardRule, LlmConfig};
+use crate::debuglog::DebugLog;
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -72,10 +73,18 @@ impl LlmClient {
         Ok(())
     }
 
-    pub async fn analyze_output(&self, output: &str) -> Result<String> {
+    pub fn system_prompt(&self) -> &str {
+        &self.system_prompt
+    }
+
+    pub async fn analyze_output(&self, output: &str, debug_log: Option<&DebugLog>) -> Result<String> {
         let lines: Vec<&str> = output.lines().collect();
         let tail = &lines[lines.len().saturating_sub(20)..];
         let user_prompt = format!("Analyze this terminal output:\n\n{}", tail.join("\n"));
+
+        if let Some(dl) = debug_log {
+            dl.log_llm_request(&self.system_prompt, &user_prompt);
+        }
 
         debug!("Sending request to LLM");
 
@@ -125,6 +134,10 @@ impl LlmClient {
             .first()
             .map(|c| c.message.content.trim().to_string())
             .unwrap_or_else(|| "NONE".to_string());
+
+        if let Some(dl) = debug_log {
+            dl.log_llm_response(&content);
+        }
 
         debug!("LLM analysis result: {}", content);
         Ok(content)
