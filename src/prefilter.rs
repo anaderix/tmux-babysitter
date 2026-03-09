@@ -42,21 +42,41 @@ pub fn has_question(output: &str) -> bool {
         }
 
         // Common prompt keywords followed by question-like context
-        if (lower.contains("confirm")
-            || lower.contains("proceed")
-            || lower.contains("continue")
-            || lower.contains("overwrite")
-            || lower.contains("delete")
-            || lower.contains("remove")
-            || lower.contains("allow")
-            || lower.contains("accept"))
-            && (lower.contains('?') || lower.contains("(") || lower.contains("["))
+        // Require the keyword to appear as a whole word (bounded by non-alpha chars)
+        // AND require an interactive prompt indicator (?, y/n, yes/no brackets)
+        if has_prompt_keyword(&lower)
+            && (lower.contains('?')
+                || lower.contains("(y")
+                || lower.contains("[y")
+                || lower.contains("(n")
+                || lower.contains("[n"))
         {
             debug!("Prefilter matched keyword pattern: {}", trimmed);
             return true;
         }
     }
 
+    false
+}
+
+/// Check if a lowercase string contains a prompt keyword as a whole word.
+/// "confirm" matches "confirm deletion" but NOT "confirmed" or "unconfirmed".
+fn has_prompt_keyword(lower: &str) -> bool {
+    const KEYWORDS: &[&str] = &[
+        "confirm", "proceed", "continue", "overwrite", "delete", "remove", "allow", "accept",
+    ];
+    for keyword in KEYWORDS {
+        if let Some(pos) = lower.find(keyword) {
+            let before_ok = pos == 0
+                || !lower.as_bytes()[pos - 1].is_ascii_alphabetic();
+            let end = pos + keyword.len();
+            let after_ok = end >= lower.len()
+                || !lower.as_bytes()[end].is_ascii_alphabetic();
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+    }
     false
 }
 
@@ -123,6 +143,20 @@ mod tests {
     fn detects_keyword_patterns() {
         assert!(has_question("Confirm deletion? [yes/no]"));
         assert!(has_question("Proceed with overwrite? (y/n)"));
+        assert!(has_question("Do you want to continue? (y/n)"));
+        assert!(has_question("Allow access? [y/n]"));
+    }
+
+    #[test]
+    fn ignores_keyword_substrings_and_status_messages() {
+        // "confirmed" contains "confirm" but is not a prompt keyword
+        assert!(!has_question("SH3 is not confirmed as-is — SLoD-routed (F1=0.207)"));
+        // "continued" contains "continue" but is not a prompt
+        assert!(!has_question("Processing continued (batch 5 of 10)"));
+        // "removed" contains "remove"
+        assert!(!has_question("File was removed successfully (3 items)"));
+        // "allowed" contains "allow"
+        assert!(!has_question("Connection allowed [TLS 1.3]"));
     }
 
     #[test]

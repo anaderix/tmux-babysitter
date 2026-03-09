@@ -69,15 +69,12 @@ async fn main() -> Result<()> {
     );
 
     let mut interval = time::interval(Duration::from_millis(config.monitoring_interval_ms));
-    let mut last_capture_hash: Option<u64> = None;
-    // Tracks the last LLM result we acted on, to avoid sending duplicate responses
-    // when pane content changes slightly but the same question is still showing.
-    let mut last_response_llm_result: Option<String> = None;
+    let mut state = MonitorState::new();
 
     loop {
         interval.tick().await;
 
-        match monitor_once(&tmux_client, &llm_client, &guard_engine, args.dry_run, &mut last_capture_hash, &mut last_response_llm_result).await {
+        match monitor_once(&tmux_client, &llm_client, &guard_engine, args.dry_run, &mut state).await {
             Ok(response_sent) => {
                 if response_sent && !args.dry_run {
                     // Enter rapid response mode to catch chained confirmations
@@ -87,8 +84,7 @@ async fn main() -> Result<()> {
                         &guard_engine,
                         args.dry_run,
                         &config.rapid_response,
-                        &mut last_capture_hash,
-                        &mut last_response_llm_result,
+                        &mut state,
                     )
                     .await
                     {
@@ -119,6 +115,27 @@ fn load_config(path: &std::path::Path) -> Result<Config> {
     Ok(config)
 }
 
+/// Tracks monitoring state across cycles to avoid redundant LLM calls.
+struct MonitorState {
+    /// Hash of the full pane capture, for exact-match dedup.
+    last_capture_hash: Option<u64>,
+    /// The last LLM result we acted on, to suppress duplicate responses.
+    last_response_llm_result: Option<String>,
+    /// Hash of the last 20 lines sent to LLM, to skip when only
+    /// non-visible parts of the pane changed.
+    last_llm_input_hash: Option<u64>,
+}
+
+impl MonitorState {
+    fn new() -> Self {
+        Self {
+            last_capture_hash: None,
+            last_response_llm_result: None,
+            last_llm_input_hash: None,
+        }
+    }
+}
+
 fn hash_string(s: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     s.hash(&mut hasher);
@@ -130,8 +147,7 @@ async fn monitor_once(
     llm_client: &LlmClient,
     guard_engine: &GuardRailsEngine,
     dry_run: bool,
-    last_capture_hash: &mut Option<u64>,
-    last_response_llm_result: &mut Option<String>,
+    state: &mut MonitorState,
 ) -> Result<bool> {
     let output = tmux_client
         .capture_pane()
@@ -143,19 +159,33 @@ async fn monitor_once(
     }
 
     let current_hash = hash_string(&output);
-    if *last_capture_hash == Some(current_hash) {
+    if state.last_capture_hash == Some(current_hash) {
         debug!("Pane content unchanged, skipping");
         return Ok(false);
     }
-    *last_capture_hash = Some(current_hash);
+    state.last_capture_hash = Some(current_hash);
 
     if !prefilter::has_question(&output) {
         debug!("Prefilter: no question detected, skipping LLM call");
-        // No question on screen — clear the duplicate tracker so the next
-        // real question (even if it matches the previous one) gets answered.
-        *last_response_llm_result = None;
+        // No question on screen — clear the trackers so the next
+        // real question (even if it matches a previous one) gets answered.
+        state.last_response_llm_result = None;
+        state.last_llm_input_hash = None;
         return Ok(false);
     }
+
+    // Hash the last 20 lines (the portion we send to the LLM) to avoid
+    // re-querying when only non-visible parts of the pane changed.
+    let lines: Vec<&str> = output.lines().collect();
+    let tail = &lines[lines.len().saturating_sub(20)..];
+    let tail_str: String = tail.join("\n");
+    let tail_hash = hash_string(&tail_str);
+
+    if state.last_llm_input_hash == Some(tail_hash) {
+        debug!("LLM input (last 20 lines) unchanged, skipping LLM call");
+        return Ok(false);
+    }
+    state.last_llm_input_hash = Some(tail_hash);
 
     debug!("Prefilter: possible question detected, calling LLM");
 
@@ -165,12 +195,11 @@ async fn monitor_once(
         .context("Failed to analyze output with LLM")?;
 
     if llm_result == "NONE" {
-        *last_response_llm_result = None;
         return Ok(false);
     }
 
     // Check if we already responded to this exact LLM result
-    if last_response_llm_result.as_deref() == Some(&llm_result) {
+    if state.last_response_llm_result.as_deref() == Some(&llm_result) {
         debug!(
             "Duplicate response suppressed: already answered '{}'",
             llm_result
@@ -218,7 +247,7 @@ async fn monitor_once(
     }
 
     // Record what we responded to, so we don't send it again
-    *last_response_llm_result = Some(llm_result);
+    state.last_response_llm_result = Some(llm_result);
 
     Ok(true)
 }
@@ -229,8 +258,7 @@ async fn rapid_response_loop(
     guard_engine: &GuardRailsEngine,
     dry_run: bool,
     rapid_config: &config::RapidResponse,
-    last_capture_hash: &mut Option<u64>,
-    last_response_llm_result: &mut Option<String>,
+    state: &mut MonitorState,
 ) -> Result<()> {
     if !rapid_config.enabled {
         return Ok(());
@@ -244,7 +272,7 @@ async fn rapid_response_loop(
     for i in 0..rapid_config.count {
         tokio::time::sleep(Duration::from_millis(rapid_config.interval_ms)).await;
 
-        match monitor_once(tmux_client, llm_client, guard_engine, dry_run, last_capture_hash, last_response_llm_result).await {
+        match monitor_once(tmux_client, llm_client, guard_engine, dry_run, state).await {
             Ok(response_sent) => {
                 if response_sent {
                     debug!("Rapid response {}: action taken", i + 1);
