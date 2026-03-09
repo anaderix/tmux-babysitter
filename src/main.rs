@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod guard;
 mod llm;
+mod prefilter;
 mod tmux;
 
 use anyhow::{Context, Result};
@@ -10,6 +11,8 @@ use cli::Args;
 use config::Config;
 use guard::GuardRailsEngine;
 use llm::LlmClient;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
 use tmux::{SessionNotFoundError, TmuxClient};
@@ -45,11 +48,15 @@ async fn main() -> Result<()> {
     );
 
     let mut interval = time::interval(Duration::from_millis(config.monitoring_interval_ms));
+    let mut last_capture_hash: Option<u64> = None;
+    // Tracks the last LLM result we acted on, to avoid sending duplicate responses
+    // when pane content changes slightly but the same question is still showing.
+    let mut last_response_llm_result: Option<String> = None;
 
     loop {
         interval.tick().await;
 
-        match monitor_once(&tmux_client, &llm_client, &guard_engine, args.dry_run).await {
+        match monitor_once(&tmux_client, &llm_client, &guard_engine, args.dry_run, &mut last_capture_hash, &mut last_response_llm_result).await {
             Ok(response_sent) => {
                 if response_sent && !args.dry_run {
                     // Enter rapid response mode to catch chained confirmations
@@ -59,6 +66,8 @@ async fn main() -> Result<()> {
                         &guard_engine,
                         args.dry_run,
                         &config.rapid_response,
+                        &mut last_capture_hash,
+                        &mut last_response_llm_result,
                     )
                     .await
                     {
@@ -89,11 +98,19 @@ fn load_config(path: &std::path::Path) -> Result<Config> {
     Ok(config)
 }
 
+fn hash_string(s: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish()
+}
+
 async fn monitor_once(
     tmux_client: &TmuxClient,
     llm_client: &LlmClient,
     guard_engine: &GuardRailsEngine,
     dry_run: bool,
+    last_capture_hash: &mut Option<u64>,
+    last_response_llm_result: &mut Option<String>,
 ) -> Result<bool> {
     let output = tmux_client
         .capture_pane()
@@ -104,55 +121,85 @@ async fn monitor_once(
         return Ok(false);
     }
 
+    let current_hash = hash_string(&output);
+    if *last_capture_hash == Some(current_hash) {
+        debug!("Pane content unchanged, skipping");
+        return Ok(false);
+    }
+    *last_capture_hash = Some(current_hash);
+
+    if !prefilter::has_question(&output) {
+        debug!("Prefilter: no question detected, skipping LLM call");
+        // No question on screen — clear the duplicate tracker so the next
+        // real question (even if it matches the previous one) gets answered.
+        *last_response_llm_result = None;
+        return Ok(false);
+    }
+
+    debug!("Prefilter: possible question detected, calling LLM");
+
     let llm_result = llm_client
         .analyze_output(&output)
         .await
         .context("Failed to analyze output with LLM")?;
 
-    if llm_result != "NONE" {
-        // Parse rule_name:position format (e.g., "file_delete:3")
-        let (rule_name, position) = if let Some(colon_pos) = llm_result.find(':') {
-            let rule = &llm_result[..colon_pos];
-            let pos = &llm_result[colon_pos + 1..];
-            (rule, Some(pos.to_string()))
-        } else {
-            (llm_result.as_str(), None)
-        };
-
-        let response = guard_engine.determine_response(rule_name);
-
-        // Determine final response to send:
-        // 1. If LLM provided explicit position, use it
-        // 2. Otherwise, convert yes/no to positions for backward compatibility
-        let final_response = if let Some(pos) = position {
-            pos
-        } else {
-            // Convert yes/no to numbered menu selections for backward compatibility
-            // "yes" -> "1" (first option), "no" -> "2" (second option)
-            match response.to_lowercase().as_str() {
-                "yes" => "1".to_string(),
-                "no" => "2".to_string(),
-                _ => response,
-            }
-        };
-
-        if dry_run {
-            info!(
-                "[DRY RUN] Would send response: '{}' for rule: '{}'",
-                final_response, rule_name
-            );
-        } else {
-            // Send the number (no Enter needed for tmux menu selection)
-            tmux_client
-                .send_keys_no_enter(&final_response)
-                .await
-                .context("Failed to send keys to tmux")?;
-        }
-
-        return Ok(true);
+    if llm_result == "NONE" {
+        *last_response_llm_result = None;
+        return Ok(false);
     }
 
-    Ok(false)
+    // Check if we already responded to this exact LLM result
+    if last_response_llm_result.as_deref() == Some(&llm_result) {
+        debug!(
+            "Duplicate response suppressed: already answered '{}'",
+            llm_result
+        );
+        return Ok(false);
+    }
+
+    // Parse rule_name:position format (e.g., "file_delete:3")
+    let (rule_name, position) = if let Some(colon_pos) = llm_result.find(':') {
+        let rule = &llm_result[..colon_pos];
+        let pos = &llm_result[colon_pos + 1..];
+        (rule, Some(pos.to_string()))
+    } else {
+        (llm_result.as_str(), None)
+    };
+
+    let response = guard_engine.determine_response(rule_name);
+
+    // Determine final response to send:
+    // 1. If LLM provided explicit position, use it
+    // 2. Otherwise, convert yes/no to positions for backward compatibility
+    let final_response = if let Some(pos) = position {
+        pos
+    } else {
+        // Convert yes/no to numbered menu selections for backward compatibility
+        // "yes" -> "1" (first option), "no" -> "2" (second option)
+        match response.to_lowercase().as_str() {
+            "yes" => "1".to_string(),
+            "no" => "2".to_string(),
+            _ => response,
+        }
+    };
+
+    if dry_run {
+        info!(
+            "[DRY RUN] Would send response: '{}' for rule: '{}'",
+            final_response, rule_name
+        );
+    } else {
+        // Send the number (no Enter needed for tmux menu selection)
+        tmux_client
+            .send_keys_no_enter(&final_response)
+            .await
+            .context("Failed to send keys to tmux")?;
+    }
+
+    // Record what we responded to, so we don't send it again
+    *last_response_llm_result = Some(llm_result);
+
+    Ok(true)
 }
 
 async fn rapid_response_loop(
@@ -161,6 +208,8 @@ async fn rapid_response_loop(
     guard_engine: &GuardRailsEngine,
     dry_run: bool,
     rapid_config: &config::RapidResponse,
+    last_capture_hash: &mut Option<u64>,
+    last_response_llm_result: &mut Option<String>,
 ) -> Result<()> {
     if !rapid_config.enabled {
         return Ok(());
@@ -174,7 +223,7 @@ async fn rapid_response_loop(
     for i in 0..rapid_config.count {
         tokio::time::sleep(Duration::from_millis(rapid_config.interval_ms)).await;
 
-        match monitor_once(tmux_client, llm_client, guard_engine, dry_run).await {
+        match monitor_once(tmux_client, llm_client, guard_engine, dry_run, last_capture_hash, last_response_llm_result).await {
             Ok(response_sent) => {
                 if response_sent {
                     debug!("Rapid response {}: action taken", i + 1);
