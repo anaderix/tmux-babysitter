@@ -48,3 +48,28 @@ name = "menu_select_second"
 description = "A numbered menu where second option is correct (e.g., No, or Yes Always)"
 response = "2"
 
+[[guard_rails.rules]]
+name = "menu_select_third"
+description = "A numbered menu where third option is correct choice"
+response = "3"
+
+[[guard_rails.rules]]
+name = "menu_yes"
+description = "A numbered menu where Yes is the correct option (usually position 1)"
+response = "1"
+
+[[guard_rails.rules]]
+name = "menu_no"
+description = "A numbered menu where No is the correct option (usually position 2)"
+response = "2"
+
+[[guard_rails.rules]]
+name = "menu_always"
+description = "A numbered menu with Yes/Yes Always/No - select Yes Always (usually position 2)"
+response = "2"
+
+[[guard_rails.rules]]
+name = "generic_proceed"
+description = "A generic numbered menu asking to proceed (e.g., \"Do you want to proceed?\") where context is unclear"
+response = "1"
+
