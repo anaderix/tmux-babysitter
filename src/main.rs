@@ -204,7 +204,11 @@ async fn monitor_once(
         debug!("LLM input (last 20 lines) unchanged, skipping LLM call");
         return Ok(false);
     }
+    // LLM input changed — clear the duplicate response tracker so that
+    // a new question producing the same LLM result (e.g., two consecutive
+    // "generic_proceed:1" for different commands) still gets answered.
     state.last_llm_input_hash = Some(tail_hash);
+    state.last_response_llm_result = None;
 
     debug!("Prefilter: possible question detected, calling LLM");
 
