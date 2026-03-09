@@ -13,6 +13,9 @@ config.toml
 *.swo
 *~
 
+# Debug logs
+*.log
+
 # OS
 .DS_Store
 Thumbs.db

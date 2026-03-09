@@ -1,6 +1,6 @@
 # Makefile for tmux-babysitter
 
-.PHONY: all build release test clean run help install fmt clippy check
+.PHONY: all build release test clean run help install fmt clippy check run-debug-log
 
 # Variables
 CARGO = cargo
@@ -8,6 +8,7 @@ TARGET_DIR = target
 BINARY_NAME = tmux-babysitter
 RELEASE_BINARY = $(TARGET_DIR)/release/$(BINARY_NAME)
 DEBUG_BINARY = $(TARGET_DIR)/debug/$(BINARY_NAME)
+DEBUG_LOG = babysitter.log
 
 # Default target
 all: build
@@ -64,6 +65,11 @@ test-babysitter: release
 test-safeguard: release
 	$(RELEASE_BINARY) -c config.safeguard.toml --dry-run -v
 
+# Run release version with debug logging (removes old log first)
+run-debug-log: release
+	rm -f $(DEBUG_LOG)
+	$(RELEASE_BINARY) -c config.toml -v --debug-log $(DEBUG_LOG) $(ARGS)
+
 # Install to /usr/local/bin (requires sudo)
 install: release
 	install -m 755 $(RELEASE_BINARY) /usr/local/bin/$(BINARY_NAME)
@@ -103,6 +109,7 @@ help:
 	@echo "  run-release      Run release version (use ARGS=... for arguments)"
 	@echo "  test-babysitter  Test with example config in dry-run mode"
 	@echo "  test-safeguard    Test with safeguard config in dry-run mode"
+	@echo "  run-debug-log    Run release with verbose + debug log (resets log)"
 	@echo "  install          Install to /usr/local/bin (requires sudo)"
 	@echo "  install-user     Install to ~/.local/bin"
 	@echo "  uninstall        Uninstall from /usr/local/bin (requires sudo)"

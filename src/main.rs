@@ -169,6 +169,11 @@ async fn monitor_once(
         .await
         .context("Failed to capture tmux pane")?;
 
+    // Strip trailing blank lines — tmux capture-pane includes the full
+    // visible pane height, padding with empty lines below the actual content.
+    // Without trimming, the "last 20 lines" window can be entirely blank.
+    let output = output.trim_end().to_string();
+
     if output.is_empty() {
         return Ok(false);
     }
