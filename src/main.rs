@@ -12,7 +12,7 @@ use guard::GuardRailsEngine;
 use llm::LlmClient;
 use std::str::FromStr;
 use std::time::Duration;
-use tmux::TmuxClient;
+use tmux::{SessionNotFoundError, TmuxClient};
 use tokio::time;
 use tracing::{error, info, warn};
 
@@ -52,6 +52,12 @@ async fn main() -> Result<()> {
         match monitor_once(&tmux_client, &llm_client, &guard_engine, args.dry_run).await {
             Ok(_) => {}
             Err(e) => {
+                // Check if the session has stopped
+                if e.downcast_ref::<SessionNotFoundError>().is_some() {
+                    info!("Tmux session '{}' has stopped. Exiting babysitter.", config.tmux.session);
+                    return Ok(());
+                }
+
                 error!("Error during monitoring cycle: {}", e);
             }
         }

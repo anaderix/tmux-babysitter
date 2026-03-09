@@ -2,7 +2,7 @@ use crate::config::LlmConfig;
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::debug;
 
 #[derive(Debug, Serialize)]
 struct ChatMessage {
@@ -179,7 +179,7 @@ Respond ONLY with the rule name or "NONE", optionally followed by ":position" fo
             .map(|c| c.message.content.trim().to_string())
             .unwrap_or_else(|| "NONE".to_string());
 
-        info!("LLM analysis result: {}", content);
+        debug!("LLM analysis result: {}", content);
         Ok(content)
     }
 }

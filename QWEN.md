@@ -88,3 +88,32 @@ Or 3-option menus:
 | `1. Yes  2. No` | `file_delete:2` | `2` |
 | `1. Yes  2. Always  3. No` | `file_delete:3` | `3` |
 | `1. Continue  2. Cancel` | `continue_confirmation:1` | `1` |
+
+### Session Termination Detection & Log Noise Reduction (March 2026)
+
+**Problem 1:** When tmux session stops, babysitter endlessly logs errors:
+```
+ERROR tmux_babysitter: Error during monitoring cycle: Failed to capture tmux pane
+ERROR tmux_babysitter::tmux: tmux capture-pane failed: can't find window: 4
+```
+
+**Problem 2:** Normal operation logs too much noise:
+```
+INFO tmux_babysitter::llm: LLM analysis result: NONE
+```
+(repeats every 500ms when no prompt is present)
+
+**Solution 1: Graceful Session Termination**
+- Added `SessionNotFoundError` custom error type in `src/tmux.rs`
+- `capture_pane()` detects "can't find" or "no such session" errors
+- Main loop catches this error, logs shutdown message, and exits cleanly
+
+**Solution 2: Log Noise Suppression**
+- Changed "LLM analysis result: NONE" from `info!` to `debug!`
+- Only appears with `--verbose` flag
+- Normal operation is now silent unless taking action
+
+**Key Files Modified:**
+- `src/tmux.rs`: Added `SessionNotFoundError`, updated `capture_pane()` to detect missing sessions, fixed clippy warning (`format!` → `.to_string()`)
+- `src/main.rs`: Catch `SessionNotFoundError` and exit with info message
+- `src/llm.rs`: Changed `info!` to `debug!` for NONE results, removed unused import

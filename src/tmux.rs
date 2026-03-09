@@ -1,7 +1,20 @@
 use crate::config::TmuxConfig;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use tokio::process::Command;
 use tracing::{debug, error, info};
+
+#[derive(Debug)]
+pub struct SessionNotFoundError {
+    pub target: String,
+}
+
+impl std::fmt::Display for SessionNotFoundError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Session not found: {}", self.target)
+    }
+}
+
+impl std::error::Error for SessionNotFoundError {}
 
 pub struct TmuxClient {
     config: TmuxConfig,
@@ -13,7 +26,7 @@ impl TmuxClient {
     }
 
     fn build_target(&self) -> String {
-        let mut target = format!("{}", self.config.session);
+        let mut target = self.config.session.to_string();
         if let Some(window) = &self.config.window {
             target.push_str(&format!(":{}", window));
         }
@@ -32,9 +45,15 @@ impl TmuxClient {
             .context("Failed to execute tmux capture-pane")?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             error!("tmux capture-pane failed: {}", stderr);
-            anyhow::bail!("tmux capture-pane failed: {}", stderr);
+
+            // Check if the session/window is gone
+            if stderr.contains("can't find") || stderr.contains("no such session") {
+                bail!(SessionNotFoundError { target });
+            }
+
+            bail!("tmux capture-pane failed: {}", stderr);
         }
 
         let content = String::from_utf8_lossy(&output.stdout).to_string();
