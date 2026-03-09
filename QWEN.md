@@ -182,3 +182,17 @@ Terminal: "Do you want to proceed?"
 - 2-option destructive menus (e.g., "Yes  2. No" → respond with No position)
 - 3-option destructive menus (e.g., "Yes  2. Always  3. No" → respond with No position)
 - 3-option SAFE menus (e.g., "Yes  2. Always  3. No" for syntax check → respond with Yes position via `generic_proceed:1`)
+### Unknown Rule Logging (March 2026)
+
+**Problem:** When LLM detects a prompt but the corresponding rule is missing from config, babysitter silently uses the default response. Users can't tell if a rule is missing.
+
+**Solution:** Changed unknown rule warning to info-level logging to make it more visible.
+
+**Behavior:**
+- When LLM returns a rule name that doesn't exist in guard rails config
+- Logs: `"Unknown guard rule 'X', using default response: no"`
+- Uses `default_response` from config (typically "no" for safety)
+- User can see this in normal operation (not just with `--verbose`)
+
+**Key Files Modified:**
+- `src/guard.rs`: Changed `warn!` to `info!` for unknown rule messages; removed unused `warn` import

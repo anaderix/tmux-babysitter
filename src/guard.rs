@@ -1,5 +1,5 @@
 use crate::config::{GuardRails, GuardRule};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 pub struct GuardRailsEngine {
     rails: GuardRails,
@@ -20,7 +20,7 @@ impl GuardRailsEngine {
             .iter()
             .find(|rule| rule.name == rule_name)
             .or_else(|| {
-                warn!("Unknown guard rule '{}', using default response", rule_name);
+                info!("Unknown guard rule '{}', using default response: {}", rule_name, self.rails.default_response);
                 None
             })
     }
