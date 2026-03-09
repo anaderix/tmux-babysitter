@@ -126,6 +126,7 @@ Examples:
 - Terminal: "Delete file? (yes/no)" → Response: "file_delete"
 - Terminal: "1. Yes  2. No" + destructive op → Response: "file_delete:2"
 - Terminal: "1. Yes  2. Always  3. No" + destructive op → Response: "file_delete:3"
+- Terminal: "1. Yes  2. Always  3. No" + safe op (no destruction) → Response: "generic_proceed:1"
 - Terminal: "1. Continue  2. Cancel" + safe op → Response: "continue_confirmation:1"
 
 Respond ONLY with the rule name or "NONE", optionally followed by ":position" for numbered menus."#;

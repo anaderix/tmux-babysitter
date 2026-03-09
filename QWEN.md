@@ -175,5 +175,10 @@ Terminal: "Do you want to proceed?"
 - Guard rails maps to "1" → sends "1" to tmux (selects "Yes")
 
 **Key Files Modified:**
-- `src/llm.rs`: Added CRITICAL instruction about generic menus in system prompt; added `generic_proceed` to available rules list
+- `src/llm.rs`: Added CRITICAL instruction about generic menus in system prompt; added `generic_proceed` to available rules list; added example for safe 3-option menus
 - `config.safeguard.toml`: Added `generic_proceed` rule with response "1"
+
+**Important Note:** The LLM prompt now includes examples for:
+- 2-option destructive menus (e.g., "Yes  2. No" → respond with No position)
+- 3-option destructive menus (e.g., "Yes  2. Always  3. No" → respond with No position)
+- 3-option SAFE menus (e.g., "Yes  2. Always  3. No" for syntax check → respond with Yes position via `generic_proceed:1`)
