@@ -117,3 +117,63 @@ INFO tmux_babysitter::llm: LLM analysis result: NONE
 - `src/tmux.rs`: Added `SessionNotFoundError`, updated `capture_pane()` to detect missing sessions, fixed clippy warning (`format!` → `.to_string()`)
 - `src/main.rs`: Catch `SessionNotFoundError` and exit with info message
 - `src/llm.rs`: Changed `info!` to `debug!` for NONE results, removed unused import
+
+### Rapid Response for Chained Confirmations (March 2026)
+
+**Problem:** Some tools show multiple yes/no confirmations in rapid succession (e.g., "Delete file? [y/n]" immediately followed by "Remove directory? [y/n]"). The normal monitoring loop has a 500-1000ms gap between checks after sending a response, which can miss the second prompt.
+
+**Solution:** After sending a response, enter a short "burst mode" of rapid checks to catch chained confirmations.
+
+**Behavior:**
+- Normal monitoring: checks every `monitoring_interval_ms` (500-1000ms)
+- After sending a response: enter rapid response mode for a burst of checks
+- Rapid mode performs `count` checks, each separated by `interval_ms`
+- Then returns to normal monitoring interval
+
+**Default Configuration:**
+- `enabled: true` - rapid response is on by default
+- `interval_ms: 200` - check every 200ms during burst mode
+- `count: 5` - perform 5 rapid checks (total window: ~800ms)
+
+**Example Timeline:**
+1. Prompt detected → Response sent (e.g., "2" for "No")
+2. Wait 200ms → Check pane → No new prompt
+3. Wait 200ms → Check pane → Prompt found! → Send response
+4. Wait 200ms → Check pane → No new prompt
+5. Wait 200ms → Check pane → No new prompt
+6. Wait 200ms → Check pane → No new prompt
+7. Exit burst mode, return to normal monitoring
+
+**Key Files Modified:**
+- `src/config.rs`: Added `RapidResponse` struct with `enabled`, `interval_ms`, `count` fields; implemented `Default` trait
+- `config.example.toml`: Added `[rapid_response]` section with defaults and documentation
+- `src/main.rs`:
+  - `monitor_once()` now returns `Result<bool>` indicating if a response was sent
+  - Added `rapid_response_loop()` function for burst checking
+  - Main loop triggers rapid response after successful response (when not in dry-run)
+  - Added `debug` import for detailed logging
+
+### Generic Menu Handling (March 2026)
+
+**Problem:** Generic numbered menus like "Do you want to proceed?" with options "1. Yes  2. No" don't match any specific rule, causing the LLM to return "NONE" and the babysitter to ignore the prompt.
+
+**Solution:** Added `generic_proceed` rule and updated LLM prompt to handle generic menus intelligently.
+
+**Behavior:**
+- When LLM detects a generic numbered menu with unclear context:
+  - If NO destructive action is indicated in terminal output → responds with `generic_proceed:1` (safely say Yes)
+  - If destructive action IS clearly indicated → uses specific destructive rule (e.g., `file_delete:2`)
+- The `generic_proceed` rule in config maps to response "1" (first option, typically "Yes")
+
+**Example:**
+```
+Terminal: "Do you want to proceed?"
+          " ❯ 1. Yes"
+          "   2. No"
+```
+- LLM sees generic menu, no destructive context → returns "generic_proceed:1"
+- Guard rails maps to "1" → sends "1" to tmux (selects "Yes")
+
+**Key Files Modified:**
+- `src/llm.rs`: Added CRITICAL instruction about generic menus in system prompt; added `generic_proceed` to available rules list
+- `config.safeguard.toml`: Added `generic_proceed` rule with response "1"

@@ -1,5 +1,10 @@
 monitoring_interval_ms = 500  # Check every 500ms for faster response
 
+[rapid_response]
+enabled = true           # Enable rapid response mode after sending an answer
+interval_ms = 100        # Wait 100ms between burst checks
+count = 10               # Perform 5 rapid checks (total window: ~800ms)
+
 [tmux]
 session = "my-session"
 window = "my-window"  # Optional, defaults to first window
@@ -382,3 +387,8 @@ response = "2"
 name = "menu_always"
 description = "A numbered menu with Yes/Yes Always/No - select Yes Always (usually position 2)"
 response = "2"
+
+[[guard_rails.rules]]
+name = "generic_proceed"
+description = "A generic numbered menu asking to proceed (e.g., \"Do you want to proceed?\") where context is unclear - safe default to respond with first option (usually \"Yes\")"
+response = "1"

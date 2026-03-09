@@ -28,9 +28,28 @@ pub struct TmuxConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RapidResponse {
+    pub enabled: bool,
+    pub interval_ms: u64,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub tmux: TmuxConfig,
     pub llm: LlmConfig,
     pub guard_rails: GuardRails,
     pub monitoring_interval_ms: u64,
+    #[serde(default)]
+    pub rapid_response: RapidResponse,
+}
+
+impl Default for RapidResponse {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_ms: 200,
+            count: 5,
+        }
+    }
 }

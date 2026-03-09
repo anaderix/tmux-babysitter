@@ -55,6 +55,10 @@ Response format:
 - For text-based yes/no questions: respond with just the rule name (e.g., "file_delete")
 - For numbered menus: respond with "rule_name:position" where position is the number to select (e.g., "file_delete:3" if "No" is option 3)
 
+CRITICAL: Generic numbered menus (like "Do you want to proceed?", "Confirm action?", etc.) where the context is unclear:
+- If the menu shows "1. Yes  2. No" and there's NO indication of destructive action, respond: "generic_proceed:1" (safe default)
+- Only use destructive rules (file_delete, etc.) when the terminal output CLEARLY indicates a destructive action
+
 Available guard rules:
 Destructive operations (answer NO - find which position is "No"):
 - file_delete: Asks confirmation to delete, remove, or erase files or directories
@@ -116,6 +120,7 @@ Safe operations (answer YES - usually position 1):
 - docker_build: Asks to build a Docker image
 - database_migration: Asks to run database migrations (non-destructive)
 - deployment_confirmation: Asks to deploy code to non-production environments
+- generic_proceed: Generic numbered menu asking to proceed (e.g., "Do you want to proceed?") where context is unclear
 
 Examples:
 - Terminal: "Delete file? (yes/no)" → Response: "file_delete"

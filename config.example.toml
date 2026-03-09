@@ -1,5 +1,10 @@
 monitoring_interval_ms = 1000  # Check every second
 
+[rapid_response]
+enabled = true           # Enable rapid response mode after sending an answer
+interval_ms = 200        # Wait 200ms between burst checks
+count = 5               # Perform 5 rapid checks (total window: ~800ms)
+
 [tmux]
 session = "my-session"
 window = "my-window"  # Optional, defaults to first window

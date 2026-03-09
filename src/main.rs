@@ -14,7 +14,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tmux::{SessionNotFoundError, TmuxClient};
 use tokio::time;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -50,7 +50,26 @@ async fn main() -> Result<()> {
         interval.tick().await;
 
         match monitor_once(&tmux_client, &llm_client, &guard_engine, args.dry_run).await {
-            Ok(_) => {}
+            Ok(response_sent) => {
+                if response_sent && !args.dry_run {
+                    // Enter rapid response mode to catch chained confirmations
+                    if let Err(e) = rapid_response_loop(
+                        &tmux_client,
+                        &llm_client,
+                        &guard_engine,
+                        args.dry_run,
+                        &config.rapid_response,
+                    )
+                    .await
+                    {
+                        if e.downcast_ref::<SessionNotFoundError>().is_some() {
+                            info!("Tmux session '{}' has stopped. Exiting babysitter.", config.tmux.session);
+                            return Ok(());
+                        }
+                        error!("Error during rapid response: {}", e);
+                    }
+                }
+            }
             Err(e) => {
                 // Check if the session has stopped
                 if e.downcast_ref::<SessionNotFoundError>().is_some() {
@@ -75,14 +94,14 @@ async fn monitor_once(
     llm_client: &LlmClient,
     guard_engine: &GuardRailsEngine,
     dry_run: bool,
-) -> Result<()> {
+) -> Result<bool> {
     let output = tmux_client
         .capture_pane()
         .await
         .context("Failed to capture tmux pane")?;
 
     if output.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
 
     let llm_result = llm_client
@@ -128,10 +147,50 @@ async fn monitor_once(
                 .send_keys_no_enter(&final_response)
                 .await
                 .context("Failed to send keys to tmux")?;
+        }
 
-            tokio::time::sleep(Duration::from_millis(500)).await;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+async fn rapid_response_loop(
+    tmux_client: &TmuxClient,
+    llm_client: &LlmClient,
+    guard_engine: &GuardRailsEngine,
+    dry_run: bool,
+    rapid_config: &config::RapidResponse,
+) -> Result<()> {
+    if !rapid_config.enabled {
+        return Ok(());
+    }
+
+    debug!(
+        "Entering rapid response mode: {} checks every {}ms",
+        rapid_config.count, rapid_config.interval_ms
+    );
+
+    for i in 0..rapid_config.count {
+        tokio::time::sleep(Duration::from_millis(rapid_config.interval_ms)).await;
+
+        match monitor_once(tmux_client, llm_client, guard_engine, dry_run).await {
+            Ok(response_sent) => {
+                if response_sent {
+                    debug!("Rapid response {}: action taken", i + 1);
+                }
+            }
+            Err(e) => {
+                // Check if the session has stopped
+                if e.downcast_ref::<SessionNotFoundError>().is_some() {
+                    return Err(e);
+                }
+                // Log other errors but continue rapid response mode
+                debug!("Rapid response {}: error occurred - {}", i + 1, e);
+            }
         }
     }
 
+    debug!("Exiting rapid response mode");
     Ok(())
 }
