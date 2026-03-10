@@ -1,15 +1,21 @@
 use tracing::debug;
 
 /// Cheap regex-free check to determine if terminal output likely contains
-/// a question or menu that needs LLM analysis. Returns true if the output
-/// looks like it has a prompt worth analyzing.
+/// an active question or menu that needs LLM analysis. Returns true if the
+/// output looks like it has a prompt waiting for input.
+///
+/// Key distinction: an active prompt has the question/menu at the very bottom
+/// of the visible content. Stale questions (e.g., a question Claude asked the
+/// user earlier, now scrolled up with new content below) should not match.
 pub fn has_question(output: &str) -> bool {
-    // Only look at the last 20 lines (same window the LLM sees)
     let lines: Vec<&str> = output.lines().collect();
-    let start = lines.len().saturating_sub(20);
-    let tail = &lines[start..];
 
-    for line in tail {
+    // Strong indicators (y/n brackets, numbered menus) — check last 20 lines.
+    // These are specific enough to avoid false positives from normal output.
+    let start_wide = lines.len().saturating_sub(20);
+    let tail_wide = &lines[start_wide..];
+
+    for line in tail_wide {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -17,7 +23,7 @@ pub fn has_question(output: &str) -> bool {
 
         let lower = trimmed.to_lowercase();
 
-        // Yes/no prompt patterns
+        // Yes/no prompt patterns — very specific, safe to check broadly
         if lower.contains("(y/n)")
             || lower.contains("(yes/no)")
             || lower.contains("[y/n]")
@@ -29,21 +35,34 @@ pub fn has_question(output: &str) -> bool {
             return true;
         }
 
-        // Numbered menu patterns: "1.", "[1]", "❯ 1."
+        // Numbered menu patterns: "❯ 1. Yes", "2. No", "[1] Continue"
         if is_numbered_menu_line(trimmed) {
             debug!("Prefilter matched numbered menu: {}", trimmed);
             return true;
         }
+    }
 
-        // Question mark at end of a line (with possible trailing whitespace/punctuation)
+    // Weak indicators (trailing ?, prompt keywords) — only check the last 5
+    // non-empty lines. A trailing ? is too common in normal output (e.g., LLM
+    // asking a conversational question that's already been answered). Only
+    // match if it's near the very bottom, where active prompts appear.
+    let non_empty: Vec<&str> = lines
+        .iter()
+        .rev()
+        .filter(|l| !l.trim().is_empty())
+        .take(5)
+        .copied()
+        .collect();
+
+    for line in &non_empty {
+        let trimmed = line.trim();
+        let lower = trimmed.to_lowercase();
+
         if trimmed.ends_with('?') || trimmed.ends_with("? ") {
-            debug!("Prefilter matched question mark: {}", trimmed);
+            debug!("Prefilter matched question mark (bottom): {}", trimmed);
             return true;
         }
 
-        // Common prompt keywords followed by question-like context
-        // Require the keyword to appear as a whole word (bounded by non-alpha chars)
-        // AND require an interactive prompt indicator (?, y/n, yes/no brackets)
         if has_prompt_keyword(&lower)
             && (lower.contains('?')
                 || lower.contains("(y")
@@ -51,7 +70,7 @@ pub fn has_question(output: &str) -> bool {
                 || lower.contains("(n")
                 || lower.contains("[n"))
         {
-            debug!("Prefilter matched keyword pattern: {}", trimmed);
+            debug!("Prefilter matched keyword pattern (bottom): {}", trimmed);
             return true;
         }
     }
@@ -175,5 +194,45 @@ mod tests {
         // But normal log lines without question patterns should not
         assert!(!has_question("Fetching https://example.com/api"));
         assert!(!has_question("Processing 100 items"));
+    }
+
+    #[test]
+    fn ignores_stale_questions_with_new_content_below() {
+        // A question from earlier in the session, now scrolled up with
+        // new content below it — not an active prompt.
+        let stale = "\
+Want me to try them?\n\
+\n\
+❯ yes, run 1-3\n\
+\n\
+● Agent(Engineer: threshold sweep)\n\
+  ⎿  Running...\n\
+\n\
+* Proofing… (53s)\n\
+\n\
+❯ \n\
+───────────────\n\
+  ⏵⏵ accept edits on (shift+tab to cycle)";
+        assert!(!has_question(stale));
+    }
+
+    #[test]
+    fn detects_active_question_at_bottom() {
+        // An active question with menu at the bottom — should match
+        let active = "\
+● Agent(Runner)\n\
+  ⎿  Done (35 tool uses)\n\
+\n\
+─────────────────\n\
+ Bash command\n\
+\n\
+   cd /home/user/project && git status\n\
+\n\
+ Do you want to proceed?\n\
+ ❯ 1. Yes\n\
+   2. No\n\
+\n\
+ Esc to cancel";
+        assert!(has_question(active));
     }
 }
